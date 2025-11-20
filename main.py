@@ -1,76 +1,81 @@
-import sys
-import time
+import json
 from pathlib import Path
-import traceback
+from typing import List
 
-# Añadir el directorio raíz al path de Python
-sys.path.append(str(Path(__file__).parent))
+from playwright.sync_api import sync_playwright, BrowserContext, Page
 
+from config import LOGIN_URL, PIPELINE_URL, PROJECT_FIELDS
 from src.auth_manager import AuthManager
+from src.data_extractor import DataExtractor
 from src.utils.logger import get_logger
-from config import config
-from playwright.sync_api import sync_playwright
 
-logger = get_logger("main")
+logger = get_logger(__name__)
 
-def main():
-    """Punto de entrada para la Fase 1: Autenticación y Navegación"""
-    try:
-        logger.info("="*50)
-        logger.info("INICIO DE AUTENTICACION Y NAVEGACION (FASE 1)")
-        logger.info("="*50)
-        
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                slow_mo=100,
-                args=["--start-maximized", "--disable-infobars"]
-            )
-            context = browser.new_context(
-                viewport={"width": 800, "height": 600},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = context.new_page()
-            success = False
-            
-            try:
-                auth = AuthManager(page)
-                success = auth.login()
-                if success:
-                    logger.info("[✅] Autenticación completada exitosamente")
-                    logger.info(f"Navegando a: {config.PIPELINE_URL}")
-                    page.goto(config.PIPELINE_URL, timeout=45000)
-                    page.wait_for_selector('text="Undecided"', timeout=20000)
-                    logger.info("[✅] Página de pipeline cargada correctamente")
-                else:
-                    logger.error("[❌] Autenticación fallida")
-            except Exception as e:
-                logger.error(f"[❌] Error crítico: {str(e)}")
-                logger.debug(f"Detalles: {traceback.format_exc()}")
-            
-            # ✅ CORRECCIÓN CLAVE: Cerrar recursos ANTES de salir del bloque `with`
-            try:
-                if success:
-                    try:
-                        input("\n[✅] Todo listo. Presiona Enter para cerrar el navegador...")
-                    except Exception as e:
-                        logger.warning("No se pudo leer la entrada. Esperando 3 segundos antes de cerrar...")
-                        time.sleep(3)
-                else:
-                    # Si hubo error, solo esperar unos segundos sin input
-                    logger.info("Cerrando navegador en 3 segundos por error...")
-                    time.sleep(3)
-                
-                # ✅ CERRAR NAVEGADOR DENTRO DEL BLOQUE `with`
-                browser.close()
-                logger.info("[✅] Navegador cerrado correctamente.")
-                
-            except Exception as e:
-                logger.error(f"[❌] Error al cerrar navegador: {str(e)}")
+def main() -> None:
+    """
+    Flujo principal orquestado de extracción de metadatos.
     
-    finally:
-        logger.info("[✅] Fase 1 completada.")
-
+    Pasos:
+    1. Autenticación persistente
+    2. Navegación a pipeline y extracción de metadatos
+    3. Confirmación explícita antes de Fase 3 (descarga de archivos)
+    4. Generación de muestra para testing
+    
+    Comportamiento:
+    - headless=False para debugging visual (como requerido)
+    - No descarga archivos aún (solo genera metadatos)
+    - Detiene flujo si falla validación de campos obligatorios
+    """
+    output_dir = Path("data")
+    output_dir.mkdir(exist_ok=True)
+    test_output_path = output_dir / "test_metadata.json"
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, args=["--start-maximized"])
+        context = browser.new_context()
+        page = context.new_page()
+        
+        try:
+            # Fase 1: Autenticación
+            auth_manager = AuthManager(page)
+            if not auth_manager.login():
+                logger.critical("[❌] Autenticación fallida. Deteniendo ejecución.")
+                return
+            
+            logger.info("[✅] Autenticación exitosa. Navegando a pipeline...")
+            page.goto(PIPELINE_URL, timeout=15000)
+            page.wait_for_load_state("networkidle", timeout=10000)
+            
+            # Fase 2: Extracción de metadatos
+            extractor = DataExtractor(page)
+            metadata_list = extractor.extract_all_metadata()
+            
+            if not metadata_list:
+                logger.warning("[⚠️] No se extrajeron metadatos válidos. Verificar selectores.")
+                return
+            
+            # Generar muestra para testing (máximo 3 proyectos)
+            test_sample = metadata_list[:3]
+            with open(test_output_path, "w", encoding="utf-8") as f:
+                json.dump(test_sample, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"[✅] Muestra guardada en: {test_output_path.absolute()}")
+            logger.info(f"[📊] Total de proyectos procesados: {len(metadata_list)}")
+            
+            # Confirmación explícita antes de Fase 3
+            proceed = input("\n¿Continuar con descarga de archivos (Fase 3)? [y/N]: ").strip().lower()
+            if proceed not in ["y", "yes"]:
+                logger.info("[⏹️] Ejecución detenida por usuario. Metadatos listos para Fase 3.")
+                return
+            
+            logger.info("[⏭️] Continuando con Fase 3 (descarga de archivos)...")
+            # Aquí se integraría FileDownloader en Fase 3
+            
+        except Exception as e:
+            logger.exception(f"[🔥] Error crítico en flujo principal: {str(e)}")
+        finally:
+            browser.close()
+            logger.info("[CloseOperation] Navegador cerrado correctamente")
 
 if __name__ == "__main__":
     main()
