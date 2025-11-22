@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 from src.utils.logger import get_logger
+from src.paths import PENDING_JSON
 
 logger = get_logger("pending")
 
@@ -19,7 +20,7 @@ class PendingProjectStore:
     }
     """
 
-    def __init__(self, json_path: str = "data/pending_projects.json") -> None:
+    def __init__(self, json_path: str = PENDING_JSON) -> None:
         # Ruta donde se guarda el JSON de proyectos pendientes
         self.path = Path(json_path)
         self.projects: List[Dict[str, Any]] = []

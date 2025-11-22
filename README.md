@@ -85,7 +85,8 @@ scraper/
 ## Uso
 
 ```bash
-python main.py
+python main.py        # ejecutar programa
+python debug_paths.py # validar rutas
 ```
 
 ## Flujo de Ejecución
