@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+MISSING_PHONE_PLACEHOLDER = "N/S"
+
 # ── Esquema de metadatos ───────────────────────────────────────────────
 
 class ProjectMetadata(TypedDict):
@@ -64,28 +66,31 @@ PROJECT_FIELDS: Dict[str, FieldConfig] = {
         key='phone',
         label='Phone number',
         required=False,
-        default_if_missing='N/S'  # Confirmado por Jaime
+        default_if_missing='N/S'
     )
 }
 
 
-# ── Selectores UI ───────────────────────────────────────────────────────
+# ── Selectores UI actualizados ───────────────────────────────────────────
 
 class Selectors:
-    # Pipeline view (/opportunities/pipeline)
-    DUE_DATE_HEADER = 'th[aria-sort]:has-text("Due Date")'
-    DUE_DATE_SORT_DESC = 'th[aria-sort="descending"]:has-text("Due Date")'
-    PROJECT_LINKS = 'tr.opportunity-row a[href*="/opportunities/"]:first-of-type'
-
-    # Project Overview (/opportunities/{id}/info)
-    PROJECT_NAME = 'h1[data-testid="opportunity-name"]'
-    DUE_DATE = 'span:has-text("Due Date") + div, div:has-text("Due Date") + span'
-    PROJECT_SIZE = 'span:has-text("Project Size") + div, div:has-text("Project Size") + span'
-    LOCATION = 'span:has-text("Location") + div, div:has-text("Location") + span'
-    CLIENT = 'span:has-text("Client") + div, div:has-text("Client") + span'
+    # Pipeline view (/opportunities/pipeline) - ACTUALIZADOS
+    DUE_DATE_HEADER = 'div[role="columnheader"][aria-label="Due Date"]'
+    PROJECT_ROWS = 'div.ReactVirtualized__Table__row[role="row"]'
+    PROJECT_CELLS = 'div.ReactVirtualized__Table__rowColumn'
+    PROJECT_LINK = 'div.ReactVirtualized__Table__rowColumn:nth-child(2) a[href*="/opportunities/"]'
+    PAGINATION_NEXT = 'button[data-id="caret-right"]:not([disabled])'
+    
+    # Project Overview (/opportunities/{id}/info) - ACTUALIZADOS
+    PROJECT_NAME = 'h1, div.header-0-1-10'  # Fallback para diferentes estilos
+    DUE_DATE = 'div:has-text("Due Date") + div, div:has-text("Due Date") ~ div'
+    PROJECT_SIZE = 'div:has-text("Project Size") + div, div:has-text("Project Size") ~ div'
+    LOCATION = 'div:has-text("Location") + div, div:has-text("Location") ~ div'
+    CLIENT = 'div:has-text("Client") + div, div:has-text("Client") ~ div'
     PHONE = (
-        'span:has-text("Phone") + div, div:has-text("Phone") + span, '
-        'div[data-testid*="contact"], div:has-text("Contact")'
+        'div:has-text("Phone") + div, div:has-text("Phone") ~ div, '
+        'div:has-text("Contact") + div, div:has-text("Contact") ~ div, '
+        'div[data-testid*="contact"], div:has-text("Phone number")'
     )
 
 
@@ -96,6 +101,11 @@ MISSING_PHONE_PLACEHOLDER: Literal['N/S'] = 'N/S'
 
 
 # ── Configuración principal (URLs, credenciales, rutas) ──────────────────
+SELECTORS = {
+    "email": 'input[type="email"], input[name="email"], input#email',  # Ajusta según el HTML real
+    "password": 'input[type="password"], input[name="password"], input#password',  # Igual
+    # Puedes agregar otros selectores para uso en otras partes del scraping aquí si quieres centralizar
+}
 
 @dataclass
 class Config:
@@ -123,3 +133,13 @@ class Config:
 
 # Inicializar configuración global
 config = Config()
+
+# ── Exportar constantes globales para importación directa ─────────────────
+LOGIN_URL: str = config.LOGIN_URL
+PIPELINE_URL: str = config.PIPELINE_URL
+BC_EMAIL: str = config.BC_EMAIL
+BC_PASSWORD: str = config.BC_PASSWORD
+BASE_DIR: Path = config.BASE_DIR
+DATA_DIR: Path = config.DATA_DIR
+LOGS_DIR: Path = config.LOGS_DIR
+STORE_CSV: Path = config.STORE_CSV

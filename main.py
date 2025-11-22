@@ -1,81 +1,110 @@
 import json
 from pathlib import Path
-from typing import List
 
-from playwright.sync_api import sync_playwright, BrowserContext, Page
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-from config import LOGIN_URL, PIPELINE_URL, PROJECT_FIELDS
+from config import PIPELINE_URL
 from src.auth_manager import AuthManager
 from src.data_extractor import DataExtractor
+from src.pending_store import PendingProjectStore
 from src.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("main")
+
 
 def main() -> None:
     """
-    Flujo principal orquestado de extracción de metadatos.
-    
-    Pasos:
-    1. Autenticación persistente
-    2. Navegación a pipeline y extracción de metadatos
-    3. Confirmación explícita antes de Fase 3 (descarga de archivos)
-    4. Generación de muestra para testing
-    
-    Comportamiento:
-    - headless=False para debugging visual (como requerido)
-    - No descarga archivos aún (solo genera metadatos)
-    - Detiene flujo si falla validación de campos obligatorios
+    Flujo principal orquestado para la FASE 2 del proyecto.
+
+    Fases manejadas aquí:
+    1. Autenticación persistente en BuildingConnected.
+    2. Navegación al Bid Board (pipeline) y listado de TODOS los proyectos
+       visibles (todas las páginas de la paginación) con:
+          - nombre
+          - due_date normalizada (YYYY-MM-DD)
+          - url absoluta
+       Solo se consideran proyectos con fecha de entrega > hoy.
+    3. Registro/actualización en un JSON persistente de proyectos pendientes
+       (pending_projects.json) sin entrar todavía a cada proyecto.
+
+    Importante:
+    - NO se realiza aún la Fase 3 (extracción detallada ni descarga de archivos).
+    - El JSON almacena los proyectos con un campo "estado" = "pendiente" | "extraido".
+    - Para Fase 3 se leerán los proyectos con estado "pendiente" desde este JSON.
     """
     output_dir = Path("data")
     output_dir.mkdir(exist_ok=True)
-    test_output_path = output_dir / "test_metadata.json"
-    
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False, args=["--start-maximized"])
         context = browser.new_context()
         page = context.new_page()
-        
+
         try:
-            # Fase 1: Autenticación
+            # -------------------- FASE 1: AUTENTICACIÓN -------------------- #
             auth_manager = AuthManager(page)
             if not auth_manager.login():
                 logger.critical("[❌] Autenticación fallida. Deteniendo ejecución.")
                 return
-            
+
             logger.info("[✅] Autenticación exitosa. Navegando a pipeline...")
-            page.goto(PIPELINE_URL, timeout=15000)
-            page.wait_for_load_state("networkidle", timeout=10000)
-            
-            # Fase 2: Extracción de metadatos
+            page.goto(PIPELINE_URL, timeout=30000)
+
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PlaywrightTimeoutError:
+                logger.warning("[⚠️]"
+                    "Timeout en wait_for_load_state('networkidle'), "
+                    "intentando esperar selector visible 'Undecided'"
+                )
+                # Elemento clave para confirmar que cargó el Bid Board
+                page.wait_for_selector('text=Undecided', timeout=20000)
+
+            # -------------------- FASE 2: LISTADO + JSON -------------------- #
             extractor = DataExtractor(page)
-            metadata_list = extractor.extract_all_metadata()
-            
-            if not metadata_list:
-                logger.warning("[⚠️] No se extrajeron metadatos válidos. Verificar selectores.")
+
+            # 1) Asegurar que la columna "Due Date" esté en orden descendente
+            if not extractor.ensure_descending_due_date_order():
+                logger.error(
+                    "[❌] No se pudo asegurar orden descendente en 'Due Date'. "
+                    "Abandonando Fase 2."
+                )
                 return
-            
-            # Generar muestra para testing (máximo 3 proyectos)
-            test_sample = metadata_list[:3]
-            with open(test_output_path, "w", encoding="utf-8") as f:
-                json.dump(test_sample, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"[✅] Muestra guardada en: {test_output_path.absolute()}")
-            logger.info(f"[📊] Total de proyectos procesados: {len(metadata_list)}")
-            
-            # Confirmación explícita antes de Fase 3
-            proceed = input("\n¿Continuar con descarga de archivos (Fase 3)? [y/N]: ").strip().lower()
-            if proceed not in ["y", "yes"]:
-                logger.info("[⏹️] Ejecución detenida por usuario. Metadatos listos para Fase 3.")
+
+            # 2) Obtener resumen de TODOS los proyectos válidos (todas las páginas)
+            project_summaries = extractor.get_valid_project_summaries()
+
+            if not project_summaries:
+                logger.warning(
+                    "[⚠️] No se encontraron proyectos con fecha futura en el Bid Board. "
+                    "Nada que registrar en JSON."
+                )
                 return
-            
-            logger.info("[⏭️] Continuando con Fase 3 (descarga de archivos)...")
-            # Aquí se integraría FileDownloader en Fase 3
-            
+
+            logger.info(f"[📊] Total de proyectos válidos encontrados en Bid Board: "
+                        f"{len(project_summaries)}")
+
+            # 3) Registrar/actualizar proyectos en el JSON persistente
+            store = PendingProjectStore("pending_projects.json")
+            nuevos = store.add_or_update_projects(project_summaries)
+
+            logger.info(
+                f"[📦] JSON actualizado. Proyectos encontrados en esta ejecución: "
+                f"{len(project_summaries)} | Nuevos agregados: {nuevos} | "
+                f"Total en JSON: {len(store.projects)}"
+            )
+
+            logger.info(
+                "[⏹️] Fase 2 completada. Los proyectos 'pendientes' quedarán listos para "
+                "la futura Fase 3 (extracción detallada y descargas)."
+            )
+
         except Exception as e:
             logger.exception(f"[🔥] Error crítico en flujo principal: {str(e)}")
         finally:
             browser.close()
             logger.info("[CloseOperation] Navegador cerrado correctamente")
+
 
 if __name__ == "__main__":
     main()
