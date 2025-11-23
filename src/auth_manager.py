@@ -34,7 +34,7 @@ class AuthManager:
             # Paso 3: Verificar autenticación exitosa
             return self._verify_authentication()
 
-        except TimeoutError as e:
+        except PlaywrightTimeoutError as e:
             logger.error(f"[⏱️] Timeout durante autenticación: {str(e)}")
             return False
         except Exception as e:
@@ -68,7 +68,7 @@ class AuthManager:
                     # Verificar transición a página de contraseña
                     if self._verify_password_page():
                         return True
-                except TimeoutError:
+                except PlaywrightTimeoutError:
                     continue
 
             logger.error("[❌] No se encontró botón NEXT funcional")
@@ -88,7 +88,7 @@ class AuthManager:
                 self.page.wait_for_url("**/login?next=true", timeout=10000)
                 logger.info("[✅] URL de página de contraseña verificada")
                 return True
-            except TimeoutError:
+            except PlaywrightTimeoutError:
                 pass
 
             # Método 2: Buscar campo de contraseña
@@ -105,7 +105,7 @@ class AuthManager:
                     self.page.wait_for_selector(selector, timeout=10000)
                     logger.info(f"[✅] Campo de contraseña encontrado: {selector}")
                     return True
-                except TimeoutError:
+                except PlaywrightTimeoutError:
                     continue
 
             logger.error("[❌] No se pudo verificar la página de contraseña")
@@ -134,7 +134,7 @@ class AuthManager:
                     password_field = selector
                     logger.debug(f"[✅] Campo de contraseña encontrado: {selector}")
                     break
-                except TimeoutError:
+                except PlaywrightTimeoutError:
                     continue
 
             if not password_field:
@@ -162,7 +162,7 @@ class AuthManager:
                     logger.debug("[✅] Clic realizado en botón SIGN IN")
                     self.page.wait_for_timeout(2000)
                     return True
-                except TimeoutError:
+                except PlaywrightTimeoutError:
                     continue
 
             logger.error("[❌] No se encontró botón SIGN IN funcional")
@@ -184,19 +184,21 @@ class AuthManager:
             ]
             current_url = ""
 
+            # Método 1: verificar URL del portal
             for pattern in url_patterns:
                 try:
                     logger.debug(f"[🌐] Esperando URL con patrón: {pattern}")
-                    self.page.wait_for_url(pattern, timeout=30000)
+                    self.page.wait_for_url(pattern, timeout=15000)
                     current_url = self.page.url
                     logger.info(f"[✅] URL del portal verificada: {pattern}")
                     break
-                except TimeoutError:
+                except PlaywrightTimeoutError:
                     continue
             else:
                 logger.error("[❌] Timeout esperando URL del portal")
                 return False
 
+            # Método 2: Buscar elementos críticos del dashboard
             logger.debug("[🔍] Buscando elementos críticos del dashboard...")
             critical_elements = [
                 ('text="Bid Board"', "Interfaz principal - Bid Board"),
@@ -211,12 +213,13 @@ class AuthManager:
             for selector, description in critical_elements:
                 try:
                     logger.debug(f"[🔍] Buscando: {description}")
-                    self.page.wait_for_selector(selector, timeout=15000, state="visible")
+                    self.page.wait_for_selector(selector, timeout=10000, state="visible")
                     logger.info(f"[✅] Elemento crítico encontrado: {description}")
                     return True
-                except TimeoutError:
+                except PlaywrightTimeoutError:
                     continue
 
+            # Método 3: Fallback solo con URL
             if current_url and "login" not in current_url.lower() and "signin" not in current_url.lower():
                 logger.warning("[⚠️] Autenticación posible pero sin elementos críticos visibles")
                 return True

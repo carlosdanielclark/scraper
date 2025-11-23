@@ -135,10 +135,7 @@ En `config.py` puedes modificar:
 - Para cambiar formato de salida: modificar `storage_manager.py` sin afectar lógica de scraping
 
 ## Próximos Pasos
-- Implementar fase 2: Extracción de metadatos de proyectos [En proceso]
-- Implementar fase 3: Descarga automática de archivos
-- Implementar fase 4: Flujo completo con confirmación
-- Añadir pruebas unitarias en la carpeta `tests/`
+- Añadir pruebas unitarias en la carpeta `tests/` [En proceso]
 - Implementar logging mejorado para producción
 
 ## Licencia

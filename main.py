@@ -15,7 +15,18 @@ def main() -> None:
     Flujo principal para la FASE 2:
     1. Autenticación en BuildingConnected
     2. Navegación al Bid Board y extracción de TODOS los proyectos válidos
-    3. Registro/actualización en JSON persistente
+    3. Registro/actualización en JSON persistente (pending_projects.json)
+
+    Reglas de ciclo de vida en esta fase:
+    - Si la URL YA existe en pending_projects.json:
+        * Se actualizan nombre y fecha de vencimiento.
+        * Se conserva el 'estado' actual (pendiente, en-proceso, descargado, error).
+        * Si el proyecto no tenía 'id' (legacy), se le asigna uno.
+    - Si la URL NO existe:
+        * Se crea una entrada nueva con:
+            id       -> incremental
+            estado   -> "pendiente"
+            url/name/due_date según lo extraído.
     """
     store = PendingProjectStore(PENDING_JSON)
 
@@ -38,7 +49,7 @@ def main() -> None:
                 page.wait_for_load_state("networkidle", timeout=30000)
             except PlaywrightTimeoutError:
                 logger.warning(
-                    "[⚠️]Timeout en networkidle, esperando selector 'Undecided'."
+                    "[⚠️] Timeout en networkidle, esperando selector 'Undecided'."
                 )
                 page.wait_for_selector('text=Undecided', timeout=20000)
 
@@ -59,17 +70,17 @@ def main() -> None:
                 f"[📊] Total proyectos válidos encontrados: {len(project_summaries)}"
             )
 
-            # 👉 **SOLO ESTA INSTANCIA — YA CON RUTA ABSOLUTA**
             nuevos = store.add_or_update_projects(project_summaries)
 
             logger.info(
-                f"[📦] JSON actualizado. Nuevos agregados: {nuevos} | Total: {len(store.projects)}"
+                f"[📦] JSON actualizado. Nuevos agregados: {nuevos} | "
+                f"Total: {len(store.projects)}"
             )
 
             logger.info("[⏹️] Fase 2 completada.")
 
         except Exception as e:
-            logger.exception(f"[🔥] Error crítico: {str(e)}")
+            logger.exception(f"[🔥] Error crítico en Fase 2: {str(e)}")
         finally:
             browser.close()
             logger.info("[CloseOperation] Navegador cerrado correctamente")

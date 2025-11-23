@@ -1,8 +1,7 @@
 import re
 from typing import Dict, Optional, Tuple, Union
-from datetime import datetime
 import dateparser
-from config import DATE_FORMAT_OUTPUT, FieldConfig, MISSING_PHONE_PLACEHOLDER, PROJECT_FIELDS
+from config import DATE_FORMAT_OUTPUT, FieldConfig, MISSING_PHONE_PLACEHOLDER
 
 def normalize_date(date_str: str) -> str:
     """

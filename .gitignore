@@ -11,6 +11,7 @@ scraper_env/
 *.rar
 *.pdf
 *.txt
+*.zip
 
 # Logs
 logs/
