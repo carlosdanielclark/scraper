@@ -23,13 +23,18 @@ def run_command(cmd, name: str) -> bool:
     log_file = LOGS_DIR / f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
     with log_file.open("a", encoding="utf-8") as f:
         f.write(f"\n\n[{ts}] ===== Inicio {name} =====\n")
+
+        # ⬇⬇⬇ AQUÍ EL CAMBIO IMPORTANTE DE ENCODING ⬇⬇⬇
         result = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            cwd=ROOT_DIR,  # 👈 se asegura de ejecutar en la carpeta del proyecto
+            encoding="utf-8",   # forzamos UTF-8
+            errors="replace",   # cualquier carácter raro lo reemplaza, NO revienta
+            cwd=ROOT_DIR,       # ejecuta siempre en la carpeta del proyecto
         )
+
         f.write(result.stdout)
         f.write(
             f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
