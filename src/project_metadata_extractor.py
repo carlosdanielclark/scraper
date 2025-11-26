@@ -9,7 +9,7 @@ from src.utils.logger import get_logger
 logger = get_logger("metadata")
 
 
-class ProjectMetadataExtractor:
+class BuildingConnectedMetaBuildingConnectedBidBoardScraper:
     """
     Extrae metadatos de la página de un proyecto en BuildingConnected.
 

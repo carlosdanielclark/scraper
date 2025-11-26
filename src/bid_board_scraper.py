@@ -47,7 +47,7 @@ def normalize_date(date_str: str) -> str:
     raise ValueError(f"Fecha no válida o formato no soportado: {date_str}")
 
 
-class DataExtractor:
+class BuildingConnectedBidBoardScraper:
     """
     Encapsula la lógica de extracción de datos desde el Bid Board.
     """

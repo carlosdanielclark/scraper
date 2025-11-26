@@ -6,7 +6,7 @@ from src.utils.logger import get_logger
 logger = get_logger("auth")
 
 
-class AuthManager:
+class BuildingConnectedAuthenticator:
     """Gestiona la autenticación en BuildingConnected con timeouts razonables"""
 
     def __init__(self, page: Page):

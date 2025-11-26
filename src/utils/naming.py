@@ -34,8 +34,10 @@ def normalize_project_slug(raw: Optional[str], max_len: int = 60) -> str:
 
     if len(words) == 1:
         base = words[0]
-    else:
+    elif len(words) == 2:
         base = f"{words[0]}-{words[1]}"
+    else:
+        base = f"{words[0]}-{words[1]}-{words[2]}"
 
     # 4) Eliminar caracteres raros del slug
     slug = re.sub(r"[^A-Za-z0-9_\-]", "", base)

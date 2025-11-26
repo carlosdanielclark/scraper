@@ -56,3 +56,18 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Playwright / browser data
+playwright/
+.playwright/
+
+# Project data
+scraper_data/
+data/
+logs/
+store/pending_projects.json
+*.log
+
+# OS
+Thumbs.db
+.DS_Store

@@ -1,62 +1,92 @@
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+
 from src.utils.logger import get_logger
-from src.paths import PENDING_JSON
+from src.storage_manager import StorageManager
 
 logger = get_logger("pending")
+
+_storage = StorageManager()  # instancia compartida
+PENDING_JSON = _storage.pending_store_path
 
 
 class PendingProjectStore:
     """
     Gestiona un JSON persistente con proyectos pendientes de extracción.
 
-    Cada entrada del JSON tiene estructura:
-    {
-        "url": "...",
-        "name": "...",
-        "due_date": "YYYY-MM-DD",
-        "estado": "pendiente" | "extraido"
-    }
+    Estructura esperada en pending_projects.json:
+
+    [
+        {
+            "id": 1,
+            "url": "https://buildinngconnected.com/.../project/xxxx",
+            "name": "...",
+            "due_date": "YYYY-MM-DD",
+            "estado": "pendiente" | "en-proceso" | "descargado" | "error"
+        },
+        ...
+    ]
     """
 
-    def __init__(self, json_path: str = PENDING_JSON) -> None:
+    def __init__(self, json_path: str | Path = PENDING_JSON) -> None:
         # Ruta donde se guarda el JSON de proyectos pendientes
-        self.path = Path(json_path)
+        self.json_path = Path(json_path or PENDING_JSON)
         self.projects: List[Dict[str, Any]] = []
         self._load()
+
+    # ------------------------------------------------------------------ #
+    #                         CARGA / GUARDADO
+    # ------------------------------------------------------------------ #
 
     def _load(self) -> None:
         """
         Carga el JSON si existe, si no deja la lista vacía.
         """
-        if not self.path.exists():
-            logger.info(f"[📁] Archivo JSON de pendientes no existe, se creará: {self.path}")
+        if not self.json_path.exists():
+            logger.info(
+                f"[ℹ️] No existe pending_projects.json, "
+                f"se iniciará una lista vacía: {self.json_path}"
+            )
             self.projects = []
             return
 
         try:
-            with self.path.open("r", encoding="utf-8") as f:
+            with self.json_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    self.projects = data
-                else:
-                    logger.warning("[⚠️] Formato de JSON inesperado, se inicializa lista vacía")
-                    self.projects = []
+            if isinstance(data, list):
+                self.projects = data
+            else:
+                logger.warning(
+                    "[⚠️] El contenido de pending_projects.json no es una lista. "
+                    "Se iniciará una lista vacía."
+                )
+                self.projects = []
         except Exception as e:
             logger.error(f"[❌] Error leyendo JSON de pendientes: {e}")
             self.projects = []
 
+    @property
+    def path(self) -> Path:
+        """
+        Alias para la ruta del JSON (por compatibilidad).
+        """
+        return self.json_path
+
     def _save(self) -> None:
         """
-        Guarda la lista actual de proyectos al archivo JSON.
+        Escribe el JSON en disco.
         """
         try:
-            with self.path.open("w", encoding="utf-8") as f:
+            with self.json_path.open("w", encoding="utf-8") as f:
                 json.dump(self.projects, f, ensure_ascii=False, indent=2)
             logger.info(f"[💾] JSON de proyectos pendientes actualizado: {self.path}")
         except Exception as e:
             logger.error(f"[❌] Error escribiendo JSON de pendientes: {e}")
+
+    # ------------------------------------------------------------------ #
+    #                       ALTA / ACTUALIZACIÓN
+    # ------------------------------------------------------------------ #
 
     def add_or_update_projects(self, new_projects: List[Dict[str, Any]]) -> int:
         """
@@ -75,7 +105,11 @@ class PendingProjectStore:
             - Poner estado="pendiente".
         """
         # Índice rápido por URL
-        index_by_url = {p.get("url"): i for i, p in enumerate(self.projects) if p.get("url")}
+        index_by_url = {
+            p.get("url"): i
+            for i, p in enumerate(self.projects)
+            if p.get("url")
+        }
 
         # Obtener el máximo ID existente (para nuevos ids o legacy sin id)
         max_id = 0
@@ -136,11 +170,13 @@ class PendingProjectStore:
 
         return nuevos
 
+    # ------------------------------------------------------------------ #
+    #                          CONSULTAS
+    # ------------------------------------------------------------------ #
 
     def get_pending_projects(self) -> List[Dict[str, Any]]:
         """
         Devuelve la lista de proyectos con estado 'pendiente'.
-        (Esto será útil para Fase 3.)
         """
         return [p for p in self.projects if p.get("estado") == "pendiente"]
 
@@ -154,6 +190,10 @@ class PendingProjectStore:
             if isinstance(pid, int) and pid == project_id:
                 return project
         return None
+
+    # ------------------------------------------------------------------ #
+    #                       ACTUALIZACIÓN DE ESTADO
+    # ------------------------------------------------------------------ #
 
     def update_project_state(self, project_id: int, new_state: str) -> bool:
         """

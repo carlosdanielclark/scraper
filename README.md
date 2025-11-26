@@ -47,10 +47,11 @@ BC_PASSWORD=mypassword*$-123
 
 2. **Crear archivo `requirements.txt`**:
 ```
-playwright==1.40.0
-dateparser==1.1.8
-python-dotenv==1.0.0
-pandas==2.1.3
+dateparser==1.2.2
+pandas==2.3.3
+pip==25.3
+playwright==1.56.0
+python-dotenv==1.2.1
 ```
 
 ## Estructura de Archivos
@@ -59,8 +60,11 @@ scraper/
 ├── .env                    # Variables de entorno (NO COMMITEAR)
 ├── .gitignore              # Archivos a ignorar en git
 ├── config.py               # Configuración global y variables
-├── main.py                 # Punto de entrada principal
-├── store.csv               # Registro de descargas (se crea automáticamente)
+├── run_scraper.py          # Orquestador
+├── bid_board_collector.py  # Fase 2: recolecta proyectos y actualiza pending_projects.json
+├── project_processor.py    # Fase 3: procesa proyectos pendientes con metadatos y descargas
+├── store                   # Registro de descargas (se crea automáticamente)
+│   └── pending_projects.json
 ├── requirements.txt        # Dependencias del proyecto
 ├── data/                   # Almacenamiento de proyectos descargados
 │   ├── 1-Fowler_Kia_Windsor/
@@ -72,12 +76,17 @@ scraper/
 ├── logs/                   # Registros de ejecución y capturas de pantalla
 ├── src/
 │   ├── __init__.py
-│   ├── auth_manager.py     # Gestión de autenticación
-│   ├── data_extractor.py   # Extracción de metadatos
-│   ├── downloader.py       # Descarga de archivos
+│   ├── authentication_handler.py     # Gestión de autenticación
+│   ├── bid_board_scraper.py   
+│   ├── project_downloader.py         # Descarga de archivos
+│   ├── project_metadata_extractor.py # Extracción de metadatos
+│   ├── project_paths.py
+│   ├── pending_store.py
+│   ├── validation.py
 │   ├── storage_manager.py  # Gestión de almacenamiento
 │   └── utils/
 │       ├── __init__.py
+│       ├── naming.py
 │       └── logger.py       # Sistema de logging
 └── tests/                  # Pruebas unitarias (pendiente)
 ```

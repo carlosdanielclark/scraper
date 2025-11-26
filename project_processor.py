@@ -1,19 +1,25 @@
 import argparse
-import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-from src.auth_manager import AuthManager
-from src.metadata_extractor import ProjectMetadataExtractor
-from src.download import ProjectFilesDownloader, DownloadCanceledError
+from src.authentication_handler import BuildingConnectedAuthenticator
+from src.project_metadata_extractor import (
+    BuildingConnectedMetaBuildingConnectedBidBoardScraper,
+)
+from src.project_downloader import (
+    BuildingConnectedProjectDownloader,
+    DownloadCanceledError,
+    DiskFullError,
+)
 from src.pending_store import PendingProjectStore
-from src.paths import DATA_DIR
+from src.storage_manager import StorageManager
 from src.utils.logger import get_logger
-from src.utils.naming import normalize_project_slug
 
-logger = get_logger("phase3")
+logger = get_logger("processor")
+
+storage = StorageManager()
 
 
 # ------------------------- HELPERS SELECCIÓN ------------------------- #
@@ -76,49 +82,23 @@ def build_info_url(project_url: str) -> str:
 
 def build_project_paths(project: Dict[str, Any]) -> tuple[Path, Path]:
     """
-    Construye:
-      - Carpeta del proyecto: data/projects/{id_padded}_{slug}
-      - Archivo txt:         {id_padded}_{slug}.txt
-
-    El slug usa como máximo las 2 primeras palabras del nombre del proyecto.
+    Usa StorageManager para obtener:
+      - Carpeta del proyecto: data/{id}-{slug}
+      - Archivo de metadatos: data/{id}-{slug}/data_project.txt
     """
-    project_id = project.get("id")
-    if not isinstance(project_id, int):
-        project_id = 0  # fallback, pero idealmente siempre habrá id
-
-    id_padded = f"{project_id:03d}"
-    name = project.get("name") or "UnnamedProject"
-    slug = normalize_project_slug(name)
-
-    folder_name = f"{id_padded}_{slug}"
-    projects_base_dir = DATA_DIR / "projects"
-    projects_base_dir.mkdir(parents=True, exist_ok=True)
-
-    project_dir = projects_base_dir / folder_name
-    project_dir.mkdir(parents=True, exist_ok=True)
-
-    txt_path = project_dir / f"{folder_name}.txt"
+    project_dir, metadata_txt = storage.get_project_paths(project)
 
     logger.debug(f"[🗂️] Carpeta de proyecto: {project_dir}")
-    logger.debug(f"[📄] Archivo txt: {txt_path}")
+    logger.debug(f"[📄] Archivo de metadatos: {metadata_txt}")
 
-    return project_dir, txt_path
+    return project_dir, metadata_txt
 
 
 def cleanup_project_dir(project_dir: Path) -> None:
     """
-    Elimina por completo la carpeta del proyecto si existe.
+    Elimina por completo la carpeta del proyecto si existe, delegando en StorageManager.
     """
-    try:
-        if project_dir.exists():
-            shutil.rmtree(project_dir)
-            logger.info(
-                f"[🧹] Carpeta de proyecto eliminada por fallo en Fase 3: {project_dir}"
-            )
-    except Exception as e:
-        logger.warning(
-            f"[⚠️] No se pudo eliminar la carpeta del proyecto {project_dir}: {e}"
-        )
+    storage.cleanup_project_dir_by_path(project_dir)
 
 
 # ------------------------- TXT DE METADATOS ------------------------- #
@@ -226,7 +206,7 @@ def process_single_project(
                 "continuando con el DOM actual."
             )
 
-        metadata_extractor = ProjectMetadataExtractor(page)
+        metadata_extractor = BuildingConnectedMetaBuildingConnectedBidBoardScraper(page)
         metadata = metadata_extractor.extract()
 
         txt_content = format_metadata_txt(project, metadata)
@@ -236,7 +216,7 @@ def process_single_project(
         metadata_ok = bool(metadata.get("project_name"))
 
         # --- DESCARGA ---
-        downloader = ProjectFilesDownloader(page)
+        downloader = BuildingConnectedProjectDownloader(page)
 
         try:
             download_ok = downloader.download_all_for_project(project, project_dir)
@@ -251,6 +231,17 @@ def process_single_project(
             store.update_project_state(project_id, "error")
             cleanup_project_dir(project_dir)
             return False
+        except DiskFullError:
+            # Disco lleno: NO tiene sentido reintentar; marcamos error y
+            # dejamos carpeta para inspección manual.
+            logger.error(
+                "[❌] Descarga abortada por falta de espacio en disco. "
+                "Proyecto marcado como 'error'. Fase 3 se detendrá."
+            )
+            store.update_project_state(project_id, "error")
+            # NO borramos project_dir para que puedas ver qué quedó.
+            # Re-lanzamos para que main() pare el bucle.
+            raise
 
         if metadata_ok and download_ok:
             # ---- Estado: DESCARGADO ----
@@ -309,7 +300,7 @@ def main() -> None:
         page = context.new_page()
 
         try:
-            auth_manager = AuthManager(page)
+            auth_manager = BuildingConnectedAuthenticator(page)
             if not auth_manager.login():
                 logger.critical("[❌] Autenticación fallida. Deteniendo Fase 3.")
                 return
@@ -320,57 +311,61 @@ def main() -> None:
 
             preferred_id: Optional[int] = args.project_id
 
-            while True:
-                project = select_next_project(store, preferred_id)
-                preferred_id = None  # solo se usa en la primera iteración
+            try:
+                while True:
+                    project = select_next_project(store, preferred_id)
+                    preferred_id = None  # solo se usa en la primera iteración
 
-                if not project:
+                    if not project:
+                        logger.info(
+                            "[✅] No hay más proyectos 'pendiente' para procesar. "
+                            "Fase 3 finalizada."
+                        )
+                        break
+
+                    project_id = project.get("id")
                     logger.info(
-                        "[✅] No hay más proyectos 'pendiente' para procesar. "
-                        "Fase 3 finalizada."
+                        f"[▶️] Iniciando Fase 3 para proyecto id={project_id}: "
+                        f"{project.get('name')}"
+                    )
+
+                    success = process_single_project(page, store, project)
+
+                    remaining = store.get_pending_projects()
+                    remaining_count = len(remaining)
+
+                    if success:
+                        logger.info(
+                            f"[✅] Proyecto id={project_id} completado. "
+                            f"Proyectos pendientes restantes: {remaining_count}"
+                        )
+                        continue
+
+                    # Si NO tuvo éxito, diferenciamos por estado actual
+                    refreshed = store.get_project_by_id(project_id)
+                    estado_actual = refreshed.get("estado") if refreshed else None
+
+                    if estado_actual == "error":
+                        logger.warning(
+                            f"[⚠️] Proyecto id={project_id} marcado como 'error'. "
+                            f"Se continuará con el siguiente. "
+                            f"Proyectos pendientes restantes: {remaining_count}"
+                        )
+                        continue
+
+                    logger.warning(
+                        f"[⚠️] Proyecto id={project_id} NO se completó correctamente "
+                        f"(estado actual: {estado_actual}). "
+                        f"Se detiene Fase 3 para evitar bucles de error. "
+                        f"Proyectos pendientes restantes: {remaining_count}"
                     )
                     break
 
-                project_id = project.get("id")
-                logger.info(
-                    f"[▶️] Iniciando Fase 3 para proyecto id={project_id}: "
-                    f"{project.get('name')}"
+            except DiskFullError:
+                logger.critical(
+                    "[❌] Fase 3 detenida por falta de espacio en disco. "
+                    "Libera espacio y vuelve a ejecutar project_processor.py."
                 )
-
-                success = process_single_project(page, store, project)
-
-                remaining = store.get_pending_projects()
-                remaining_count = len(remaining)
-
-                if success:
-                    logger.info(
-                        f"[✅] Proyecto id={project_id} completado. "
-                        f"Proyectos pendientes restantes: {remaining_count}"
-                    )
-                    continue
-
-                # Si NO tuvo éxito, diferenciamos por estado actual
-                refreshed = store.get_project_by_id(project_id)
-                estado_actual = refreshed.get("estado") if refreshed else None
-
-                if estado_actual == "error":
-                    # Política: casos 'error' (descarga cancelada repetida)
-                    # se saltan y se continúa con el siguiente.
-                    logger.warning(
-                        f"[⚠️] Proyecto id={project_id} marcado como 'error' "
-                        f"(descarga cancelada). Se continuará con el siguiente. "
-                        f"Proyectos pendientes restantes: {remaining_count}"
-                    )
-                    continue
-
-                # Cualquier otro fallo se toma como crítico: detenemos Fase 3
-                logger.warning(
-                    f"[⚠️] Proyecto id={project_id} NO se completó correctamente "
-                    f"(estado actual: {estado_actual}). "
-                    f"Se detiene Fase 3 para evitar bucles de error. "
-                    f"Proyectos pendientes restantes: {remaining_count}"
-                )
-                break
 
         finally:
             browser.close()
